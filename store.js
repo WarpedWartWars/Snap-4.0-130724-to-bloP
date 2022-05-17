@@ -392,6 +392,82 @@ SnapSerializer.prototype.loadProjectModel = function (xmlNode) {
         );
     }
 
+    // SF: MOD: read info about hidden custom blocks from XML string
+    model.hiddenCustoms = model.project.childNamed('hiddencustoms');
+    if (model.hiddenCustoms) {
+    	var hiddenCustomsContents = model.hiddenCustoms.contents;
+    	hiddenCustomsContents = hiddenCustomsContents.replace(/<hiddencustom>/,'');
+    	hiddenCustomsContents = hiddenCustomsContents + "###";
+    	hiddenCustomsContents = hiddenCustomsContents.replace(/<\/hiddencustom>###/,'');
+        hiddenCustomsContents.split('</hiddencustom><hiddencustom>').forEach(
+
+            function (sel) {
+                if (sel) {
+                    StageMorph.prototype.hiddenCustoms[sel] = true;
+                }
+            }
+        );
+
+		// SF: OLD: wrong
+        /* model.hiddenCustoms.contents.split(' ').forEach(
+            function (sel) {
+                if (sel) {
+                    StageMorph.prototype.hiddenCustoms[sel] = true;
+                }
+            }
+        );*/
+    }
+
+    // SF: MOD: read info about hidden objects in corral from XML string
+    model.hiddenObjects = model.project.childNamed('hiddenobjects');
+    if (model.hiddenObjects) {
+    	var hiddenObjectContents = model.hiddenObjects.contents;
+    	hiddenObjectContents = hiddenObjectContents.replace(/<hiddenobject>/,'');
+    	hiddenObjectContents = hiddenObjectContents + "###";
+    	hiddenObjectContents = hiddenObjectContents.replace(/<\/hiddenobject>###/,'');
+        hiddenObjectContents.split('</hiddenobject><hiddenobject>').forEach(
+
+            function (sel) {
+                if (sel) {
+                    StageMorph.prototype.hiddenObjects[sel] = true;
+                }
+            }
+        );
+    }
+    // SF: MOD: read info about renamed categories from XML string
+    model.categoryNames = model.project.childNamed('categorynames');
+    if (model.categoryNames) {
+    	var categoryNames = model.categoryNames.contents;
+    	categoryNames = categoryNames.replace(/<categoryname>/,'');
+    	categoryNames = categoryNames + "###";
+    	categoryNames = categoryNames.replace(/<\/categoryname>###/,'');
+    	SpriteMorph.prototype.newcategories = [];
+        categoryNames.split('</categoryname><categoryname>').forEach(
+
+            function (sel) {
+                if (sel) {
+                    SpriteMorph.prototype.newcategories.push(sel);
+                }
+            }
+        );
+    }
+    // SF: MOD: read info about hidden categories from XML string
+    model.hiddenCategories = model.project.childNamed('hiddencategories');
+    if (model.hiddenCategories) {
+    	var hiddenCategories = model.hiddenCategories.contents;
+    	hiddenCategories = hiddenCategories.replace(/<hiddencategory>/,'');
+    	hiddenCategories = hiddenCategories + "###";
+    	hiddenCategories = hiddenCategories.replace(/<\/hiddencategory>###/,'');
+        hiddenCategories.split('</hiddencategory><hiddencategory>').forEach(
+
+            function (sel) {
+                if (sel) {
+                    StageMorph.prototype.hiddenCategories[sel] = true;
+                }
+            }
+        );
+    }
+
     model.codeHeaders = model.project.childNamed('headers');
     if (model.codeHeaders) {
         model.codeHeaders.children.forEach(function (xml) {
@@ -502,7 +578,12 @@ SnapSerializer.prototype.loadProjectModel = function (xmlNode) {
                 watcher.cellMorph.contentsMorph.setHeight(+extY);
             }
             // adjust my contentsMorph's handle position
+
+// SF: MOD: do not allow to modify list when GUI is locked
+if (!world.children[0].isLocked) {
             watcher.cellMorph.contentsMorph.handle.drawNew();
+}
+
         }
     });
     this.objects = {};
@@ -1234,6 +1315,24 @@ SnapSerializer.prototype.openProject = function (project, ide) {
     }
     ide.add(project.stage);
     ide.stage = project.stage;
+
+    // SF: MOD: lock sprites/watchers if necessary
+//if (!world.children[0].isLocked) {
+if (ide.isLocked) {
+    ide.stage.dragStatus = {};
+    ide.stage.children.forEach( function(each) {
+        ide.stage.dragStatus[each.name] = each.isDraggable;
+        each.isDraggable = false;
+    });
+} else {
+    if (ide.stage.dragStatus) {
+        // unlock draggable sprites on GUI
+        ide.stage.children.forEach( function(each) {
+            each.isDraggable = ide.stage.dragStatus[each.name];
+        });
+    }
+}
+
     sprites = ide.stage.children.filter(function (child) {
         return child instanceof SpriteMorph;
     });
@@ -1241,7 +1340,14 @@ SnapSerializer.prototype.openProject = function (project, ide) {
         return x.idx - y.idx;
     });
     ide.sprites = new List(sprites);
-    sprite = sprites[0] || project.stage;
+
+// SF: MOD: return first NON HIDDEN sprite
+//  sprite = sprites[0] || project.stage;
+    sprite = detect(
+                sprites,
+                function (sprite) {
+                    return StageMorph.prototype.hiddenObjects[sprite.name] == null;
+                }) || project.stage;
 
     if (sizeOf(this.mediaDict) > 0) {
         ide.hasChangedMedia = false;
@@ -1254,6 +1360,9 @@ SnapSerializer.prototype.openProject = function (project, ide) {
     ide.selectSprite(sprite);
     ide.fixLayout();
     ide.world().keyboardReceiver = project.stage;
+
+    // SF: MOD: run on load scripts
+    ide.runOnLoadScripts();
 };
 
 // SnapSerializer XML-representation of objects:
@@ -1312,6 +1421,10 @@ StageMorph.prototype.toXML = function (serializer) {
             '<scripts>%</scripts><sprites>%</sprites>' +
             '</stage>' +
             '<hidden>$</hidden>' +
+            '<hiddencustoms>$</hiddencustoms>' +
+            '<hiddenobjects>$</hiddenobjects>' +
+            '<categorynames>$</categorynames>' +
+            '<hiddencategories>$</hiddencategories>' +
             '<headers>%</headers>' +
             '<code>%</code>' +
             '<blocks>%</blocks>' +
@@ -1339,6 +1452,28 @@ StageMorph.prototype.toXML = function (serializer) {
                 function (a, b) {return a + ' ' + b; },
                 ''
             ),
+
+	// SF: MOD: manages storing of hidden custom blocks in XML format
+        Object.keys(StageMorph.prototype.hiddenCustoms).reduce(
+                function (previousValue, currentValue) {return previousValue + '<hiddencustom>' + currentValue + '</hiddencustom>'; },
+                ''
+            ),
+	// SF: MOD: manages storing of hidden objects in XML format
+        Object.keys(StageMorph.prototype.hiddenObjects).reduce(
+                function (previousValue, currentValue) {return previousValue + '<hiddenobject>' + currentValue + '</hiddenobject>'; },
+                ''
+            ),
+	// SF: MOD: manages storing of category names in XML format
+        SpriteMorph.prototype.newcategories.reduce(
+                function (previousValue, currentValue) {return previousValue + '<categoryname>' + currentValue + '</categoryname>'; },
+                ''
+            ),
+	// SF: MOD: manages storing of renamed categories in XML format
+        Object.keys(StageMorph.prototype.hiddenCategories).reduce(
+                function (previousValue, currentValue) {return previousValue + '<hiddencategory>' + currentValue + '</hiddencategory>'; },
+                ''
+            ),
+
         code('codeHeaders'),
         code('codeMappings'),
         serializer.store(this.globalBlocks),
@@ -1510,7 +1645,7 @@ BlockMorph.prototype.toXML = BlockMorph.prototype.toScriptXML = function (
             position.y / scale
         );
     } else {
-        xml = '<script>';
+        xml = '<' + 'script' + '>';
     }
 
     // recursively add my next blocks to xml
@@ -1518,7 +1653,7 @@ BlockMorph.prototype.toXML = BlockMorph.prototype.toScriptXML = function (
         xml += block.toBlockXML(serializer);
         block = block.nextBlock();
     } while (block);
-    xml += '</script>';
+    xml += '<' + '/' + 'script' + '>';
     return xml;
 };
 
@@ -1554,13 +1689,13 @@ ReporterBlockMorph.prototype.toScriptXML = function (
 
     if (savePosition) {
         return serializer.format(
-            '<script x="@" y="@">%</script>',
+            '<' + 'script x="@" y="@">%<' + '/' + 'script' + '>',
             position.x / scale,
             position.y / scale,
             this.toXML(serializer)
         );
     }
-    return serializer.format('<script>%</script>', this.toXML(serializer));
+    return serializer.format('<' + 'script' + '>%<' + '/' + 'script' + '>', this.toXML(serializer));
 };
 
 CustomCommandBlockMorph.prototype.toBlockXML = function (serializer) {

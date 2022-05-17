@@ -1878,17 +1878,32 @@ BlockMorph.prototype.userMenu = function () {
         myself = this,
         blck;
 
+// SF: MOD:
+var ide = this.parentThatIsA(IDE_Morph);
+
+// SF: MOD:
+if (!ide.isLocked) {
     menu.addItem(
         "help...",
         'showHelp'
     );
+}
+
     if (this.isTemplate) {
-        if (this.selector !== 'evaluateCustomBlock') {
-            menu.addItem(
-                "hide",
-                'hidePrimitive'
-            );
-        }
+
+		// SF: MOD:
+    	if (!ide.isLocked) {
+
+			// SF: MOD:
+			//if (this.selector !== 'evaluateCustomBlock') {
+				menu.addItem(
+					"hide",
+					this.selector !== 'evaluateCustomBlock' ? 'hidePrimitive' : 'hideCustom'
+				);
+			//}
+
+		}
+
         if (StageMorph.prototype.enableCodeMapping) {
             menu.addLine();
             menu.addItem(
@@ -1963,11 +1978,17 @@ BlockMorph.prototype.userMenu = function () {
         },
         'open a new window\nwith a picture of this script'
     );
+
+// SF: MOD:
+if (!ide.isLocked) {
+
     if (this.parentThatIsA(RingMorph)) {
         menu.addLine();
         menu.addItem("unringify", 'unringify');
         return menu;
     }
+}
+
     if (this.parent instanceof ReporterSlotMorph
             || (this.parent instanceof CommandSlotMorph)
             || (this instanceof HatBlockMorph)
@@ -1975,8 +1996,12 @@ BlockMorph.prototype.userMenu = function () {
                 && (this.topBlock() instanceof HatBlockMorph))) {
         return menu;
     }
+
+// SF: MOD:
+if (!ide.isLocked) {
     menu.addLine();
     menu.addItem("ringify", 'ringify');
+}
     if (StageMorph.prototype.enableCodeMapping) {
         menu.addLine();
         menu.addItem(
@@ -2022,6 +2047,17 @@ BlockMorph.prototype.hidePrimitive = function () {
         reifyPredicate: 'operators',
         doDeclareVariables: 'variables'
     }[this.selector] || this.category;
+    if (cat === 'lists') {cat = 'variables'; }
+    ide.flushBlocksCache(cat);
+    ide.refreshPalette();
+};
+
+BlockMorph.prototype.hideCustom = function () {
+    var ide = this.parentThatIsA(IDE_Morph),
+        cat;
+    if (!ide) {return; }
+    StageMorph.prototype.hiddenCustoms[this.blockSpec] = true;
+    cat = this.category;
     if (cat === 'lists') {cat = 'variables'; }
     ide.flushBlocksCache(cat);
     ide.refreshPalette();
@@ -2781,7 +2817,22 @@ BlockMorph.prototype.mouseClickLeft = function () {
     if (receiver) {
         stage = receiver.parentThatIsA(StageMorph);
         if (stage) {
-            stage.threads.toggleProcess(top);
+		// SF: OLD: stage.threads.toggleProcess(top);
+
+		// SF: MOD: manages running of single scripts if GUI is locked
+		var ide;
+		ide = stage.parentThatIsA(IDE_Morph);
+		if (ide.isLocked) {
+			// stop all running scripts
+			stage.fireStopAllEvent();
+			// add the setup "when run" scripts to the ones to be run
+			stage.fireOnRunEvent();
+			// temporarely suspend the script that the user asked to run
+			stage.threads.suspendedScript = top;
+		} else {
+			// otherwise run the script concurrently
+			stage.threads.toggleProcess(top);
+		}
         }
     }
 };
@@ -4709,6 +4760,10 @@ ScriptsMorph.prototype.userMenu = function () {
         'open a new window\nwith a picture of all scripts'
     );
     if (ide) {
+
+// SF: MOD: do not show all items of user menu for custom (they are all custom!) blocks when ide is locked
+if( !ide.isLocked) {
+
         menu.addLine();
         menu.addItem(
             'make a block...',
@@ -4735,7 +4790,12 @@ ScriptsMorph.prototype.userMenu = function () {
                 );
             }
         );
-    }
+
+}
+
+	}
+
+
     return menu;
 };
 
@@ -6410,6 +6470,51 @@ InputSlotMorph.prototype.getVarNamesDict = function () {
     return {};
 };
 
+InputSlotMorph.prototype.getVarNamesDictFromEnv = function () {
+    var block = this.parent.parent.environment.parentThatIsA(BlockMorph),
+        rcvr,
+        proto,
+        rings,
+        declarations,
+        tempVars = [],
+        dict;
+
+    if (!block) {
+        return {};
+    }
+    rcvr = block.receiver();
+
+    proto = detect(block.allParents(), function (morph) {
+        return morph instanceof PrototypeHatBlockMorph;
+    });
+    if (proto) {
+        tempVars = proto.inputs()[0].inputFragmentNames();
+    }
+
+    rings = block.allParents().filter(function (block) {
+        return block instanceof RingMorph;
+    });
+    rings.forEach(function (block) {
+        tempVars = tempVars.concat(block.inputs()[1].evaluate());
+    });
+
+    declarations = block.allParents().filter(function (block) {
+        return block.selector === 'doDeclareVariables';
+    });
+    declarations.forEach(function (block) {
+        tempVars = tempVars.concat(block.inputs()[0].evaluate());
+    });
+
+    if (rcvr) {
+        dict = rcvr.variables.allNamesDict();
+        tempVars.forEach(function (name) {
+            dict[name] = name;
+        });
+        return dict;
+    }
+    return {};
+};
+
 // InputSlotMorph layout:
 
 InputSlotMorph.prototype.fixLayout = function () {
@@ -7423,6 +7528,11 @@ SymbolMorph.prototype.symbolCanvasColored = function (aColor) {
         return this.drawSymbolLine(canvas, aColor);
     case 'crosshairs':
         return this.drawSymbolCrosshairs(canvas, aColor);
+
+// SF: MOD: creates a new "+" symbol
+    case 'plus':
+        return this.drawSymbolPlus(canvas, aColor);
+
     case 'paintbucket':
         return this.drawSymbolPaintbucket(canvas, aColor);
     case 'eraser':
@@ -8134,6 +8244,25 @@ SymbolMorph.prototype.drawSymbolCrosshairs = function (canvas, color) {
     ctx.stroke();
     ctx.moveTo(w / 2, h / 2);
     ctx.arc(w / 2, w / 2, w / 3 - l, radians(0), radians(360), false);
+    ctx.stroke();
+    return canvas;
+};
+
+// SF: MOD: creates a new "+" symbol
+SymbolMorph.prototype.drawSymbolPlus = function (canvas, color) {
+    // answer a canvas showing a plus sign
+    var ctx = canvas.getContext('2d'),
+        w = canvas.width,
+        h = canvas.height,
+        l = 0.5;
+
+    ctx.strokeStyle = color.toString();
+    ctx.lineWidth = l * 2;
+    ctx.moveTo(l, h / 2);
+    ctx.lineTo(w - l, h / 2);
+    ctx.stroke();
+    ctx.moveTo(w / 2, l);
+    ctx.lineTo(w / 2, h - l);
     ctx.stroke();
     return canvas;
 };

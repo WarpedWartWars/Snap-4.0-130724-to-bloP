@@ -378,6 +378,8 @@ ListWatcherMorph.prototype.init = function (list, parentCell) {
     this.frame.acceptsDrops = false;
     this.frame.contents.acceptsDrops = false;
 
+// SF: MOD: do not allow to modify list when GUI is locked
+if (!world.children[0].isLocked) {
     this.handle = new HandleMorph(
         this,
         80,
@@ -406,6 +408,7 @@ ListWatcherMorph.prototype.init = function (list, parentCell) {
     this.plusButton.outlineColor = this.color;
     this.plusButton.drawNew();
     this.plusButton.fixLayout();
+}
 
     ListWatcherMorph.uber.init.call(
         this,
@@ -419,11 +422,25 @@ ListWatcherMorph.prototype.init = function (list, parentCell) {
     this.setExtent(new Point(80, 70).multiplyBy(
         SyntaxElementMorph.prototype.scale
     ));
+
+// SF: MOD: do not allow to modify list when GUI is locked
+//var ide = this.parentThatIsA(IDE_Morph);
+if (!world.children[0].isLocked) {
     this.add(this.label);
+}
+
     this.add(this.frame);
+
+
+// SF: MOD: do not allow to modify list when GUI is locked
+//var ide = this.parentThatIsA(IDE_Morph);
+if (!world.children[0].isLocked) {
     this.add(this.plusButton);
     this.add(this.handle);
     this.handle.drawNew();
+}
+
+
     this.update();
     this.fixLayout();
 };
@@ -617,10 +634,13 @@ ListWatcherMorph.prototype.fixLayout = function () {
         this.frame.contents.adjustBounds();
     }
 
+// SF: MOD: do not allow to modify list when GUI is locked
+if (!world.children[0].isLocked) {
     this.label.setCenter(this.center());
     this.label.setBottom(this.bottom() - 3);
     this.plusButton.setLeft(this.left() + 3);
     this.plusButton.setBottom(this.bottom() - 3);
+}
 
     Morph.prototype.trackChanges = true;
     this.changed();
@@ -649,6 +669,16 @@ ListWatcherMorph.prototype.arrangeCells = function () {
             button.setLeft(cell.right() + 2);
         }
         lastCell = cell;
+
+// SF: MOD: hide Stage elements when GUI is locked
+	// SF: define default MODE
+if (world.children[0].isLocked) {
+	label.hide();
+	button.hide();
+	// SF: MOD: cell editing is defined in CellMorph.prototype.init (objects.js)
+//	cell.isEditable = false;
+}
+
     }
     this.frame.contents.adjustBounds();
 };

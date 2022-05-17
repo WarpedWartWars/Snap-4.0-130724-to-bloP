@@ -164,6 +164,21 @@ SpriteMorph.prototype.categories =
         'other'
     ];
 
+// SF: MOD: remember new category names
+SpriteMorph.prototype.newcategories =
+    [
+        'motion',
+        'control',
+        'looks',
+        'sensing',
+        'sound',
+        'operators',
+        'pen',
+        'variables',
+        'lists',
+        'other'
+    ];
+
 SpriteMorph.prototype.blockColor = {
     motion : new Color(74, 108, 212),
     looks : new Color(143, 86, 227),
@@ -662,6 +677,26 @@ SpriteMorph.prototype.initBlocks = function () {
             spec: 'delete this clone'
         },
 
+	// SF: MOD: define unstoppable setup block to be run at loading time
+	receiveOnLoad: {
+	    type: 'hat',
+	    category: 'control',
+	    spec: 'when loading and never stop'
+	},
+
+	// SF: MOD: define block to be run at run time
+	receiveOnRun: {
+	    type: 'hat',
+	    category: 'control',
+	    spec: 'when running another script'
+	},
+	runOtherScripts: {
+	    type: 'command',
+	    category: 'control',
+	    spec: 'run other scripts'
+	},
+
+
         // Sensing
 
         reportTouchingObject: {
@@ -1102,6 +1137,11 @@ SpriteMorph.prototype.blockAlternatives = {
     doStop: ['doStopBlock', 'doStopAll'],
     doStopAll: ['doStopBlock', 'doStop'],
 
+    // SF: MOD: define alternative blocks for "when load and never stop" block
+    receiveOnLoad: ['receiveGo', 'receiveOnRun'],
+    // SF: MOD: define alternative blocks for "when run another script" block
+    receiveOnRun: ['receiveGo', 'receiveOnLoad'],
+
     // sensing:
     getLastAnswer: ['getTimer'],
     getTimer: ['getLastAnswer'],
@@ -1135,6 +1175,7 @@ function SpriteMorph(globals) {
 }
 
 SpriteMorph.prototype.init = function (globals) {
+
     this.name = localize('Sprite');
     this.variables = new VariableFrame(globals || null, this);
     this.scripts = new ScriptsMorph(this);
@@ -1206,8 +1247,19 @@ SpriteMorph.prototype.fullCopy = function () {
 // SpriteMorph versioning
 
 SpriteMorph.prototype.setName = function (string) {
-    this.name = string || this.name;
+    // SF: MOD:
+    // this.name = string || this.name;
+    var ide = this.parentThatIsA(IDE_Morph);
+    if( string == this.name) {
+    	return;
+    }
+    this.name = ide.uniqueName( string || this.name);
+
     this.version = Date.now();
+
+    // SF: MOD:
+    ide.createSpriteBar();
+    ide.fixLayout();
 };
 
 // SpriteMorph rendering
@@ -1614,6 +1666,14 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('createClone'));
         blocks.push(block('removeClone'));
 
+	// SF: MOD: add "when load and never stop" block to Control category
+        blocks.push(block('receiveOnLoad'));
+	// SF: MOD: add "when run another script" block to Control category
+        blocks.push('-');
+        blocks.push(block('receiveOnRun'));
+        blocks.push(block('runOtherScripts'));
+        blocks.push('-');
+
     } else if (cat === 'sensing') {
 
         blocks.push(block('reportTouchingObject'));
@@ -1717,6 +1777,10 @@ SpriteMorph.prototype.blockTemplates = function (category) {
 
     } else if (cat === 'variables') {
 
+// SF: MOD: hide buttons if GUI is locked
+var ide = myself.parentThatIsA(IDE_Morph);
+if (!ide.isLocked) {
+
         button = new PushButtonMorph(
             null,
             function () {
@@ -1778,6 +1842,9 @@ SpriteMorph.prototype.blockTemplates = function (category) {
             blocks.push('-');
         }
 
+// SF: MOD: hide buttons if GUI is locked
+}
+
         blocks.push(block('doSetVar'));
         blocks.push(block('doChangeVar'));
         blocks.push(block('doShowVar'));
@@ -1811,6 +1878,9 @@ SpriteMorph.prototype.blockTemplates = function (category) {
             blocks.push('=');
         }
 
+// SF: MOD: hide buttons if GUI is locked
+if (!ide.isLocked) {
+
         button = new PushButtonMorph(
             null,
             function () {
@@ -1843,6 +1913,10 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         button.selector = 'addCustomBlock';
         button.showHelp = BlockMorph.prototype.showHelp;
         blocks.push(button);
+
+// SF: MOD: hide buttons if GUI is locked
+}
+
     }
     return blocks;
 };
@@ -1910,15 +1984,29 @@ SpriteMorph.prototype.freshPalette = function (category) {
 
         function canHidePrimitives() {
             return palette.contents.children.some(function (any) {
-                return contains(
+            	//SF: added IF
+                /*return contains(
                     Object.keys(SpriteMorph.prototype.blocks),
                     any.selector
-                );
+                );*/
+                if ( contains(
+                    Object.keys(SpriteMorph.prototype.blocks),
+                    any.selector
+                )) {
+                	return true;
+                } else {
+                	return false;
+                }
             });
         }
 
+	// SF: MOD:
+	var ide = this.parentThatIsA(IDE_Morph);
+	if( !ide.isLocked) {
+
         if (canHidePrimitives()) {
-            menu.addItem(
+
+	menu.addItem(
                 'hide primitives',
                 function () {
                     var defs = SpriteMorph.prototype.blocks;
@@ -1949,11 +2037,27 @@ SpriteMorph.prototype.freshPalette = function (category) {
                     (more[category] || []).forEach(function (sel) {
                         delete StageMorph.prototype.hiddenPrimitives[sel];
                     });
+					// SF: empty hidden customs
+                    /*var hiddens = StageMorph.prototype.hiddenCustoms,
+                        defs = SpriteMorph.prototype.###blocks;
+                    Object.keys(hiddens).forEach(function (sel) {
+                        if (defs[sel].category === category) {
+                            delete StageMorph.prototype.hiddenPrimitives[sel];
+                        }
+                    });
+                    (more[category] || []).forEach(function (sel) {
+                        delete StageMorph.prototype.hiddenPrimitives[sel];
+                    });*/
+					StageMorph.prototype.hiddenCustoms = {};
+
                     ide.flushBlocksCache(category);
                     ide.refreshPalette();
                 }
             );
         }
+
+	}
+
         return menu;
     };
 
@@ -2015,11 +2119,14 @@ SpriteMorph.prototype.freshPalette = function (category) {
                             definition.category
                         ))) {
                 block = definition.templateInstance();
-                y += unit * 0.3;
-                block.setPosition(new Point(x, y));
-                palette.addContents(block);
-                x = 0;
-                y += block.height();
+				// SF: MOD: we don't add hidden custom blocks to the palette
+                if (!StageMorph.prototype.hiddenCustoms[block.blockSpec]) {
+					y += unit * 0.3;
+					block.setPosition(new Point(x, y));
+					palette.addContents(block);
+					x = 0;
+					y += block.height();
+				}
             }
         });
     }
@@ -2205,11 +2312,18 @@ SpriteMorph.prototype.userMenu = function () {
         menu.addItem('help', 'nop');
         return menu;
     }
+
+    // SF: MOD: allow to remove sprites from Corral if required by the user
+	if (!ide.isLocked) {
+
     menu.addItem("duplicate", 'duplicate');
     menu.addItem("delete", 'remove');
     menu.addItem("edit", 'edit');
     menu.addLine();
     menu.addItem("export...", 'exportSprite');
+
+	}
+
     return menu;
 };
 
@@ -2797,6 +2911,15 @@ SpriteMorph.prototype.allHatBlocksFor = function (message) {
             if (morph.selector === 'receiveClick') {
                 return message === '__click__';
             }
+
+            // SF: MOD: add "when load and never stop" block to Control category
+            if (morph.selector === 'receiveOnLoad') {
+                return message === '__run__never__stop__';
+            }
+            // SF: MOD: add "when run another script" block to Control category
+            if (morph.selector === 'receiveOnRun') {
+                return message === '__run__when__run__';
+            }
         }
         return false;
     });
@@ -3231,6 +3354,12 @@ StageMorph.prototype.paletteTextColor
     = SpriteMorph.prototype.paletteTextColor;
 
 StageMorph.prototype.hiddenPrimitives = {};
+// SF: empty hidden customs
+StageMorph.prototype.hiddenCustoms = {};
+// SF: to remove/add sprites/Stage from corral
+StageMorph.prototype.hiddenObjects = {};
+// SF: to remove/add categories
+StageMorph.prototype.hiddenCategories = {};
 StageMorph.prototype.codeMappings = {};
 StageMorph.prototype.codeHeaders = {};
 StageMorph.prototype.enableCodeMapping = false;
@@ -3688,6 +3817,54 @@ StageMorph.prototype.fireGreenFlagEvent = function () {
     return procs;
 };
 
+// SF: MOD: add "run on load and never stop" block to Control category
+StageMorph.prototype.fireOnLoadEvent = function () {
+    var procs = [],
+        hats = [],
+        ide = this.parentThatIsA(IDE_Morph),
+        myself = this;
+
+    this.children.concat(this).forEach(function (morph) {
+        if (morph instanceof SpriteMorph || morph instanceof StageMorph) {
+            hats = hats.concat(morph.allHatBlocksFor('__run__never__stop__'));
+        }
+    });
+    hats.forEach(function (block) {
+        procs.push(myself.threads.startProcess(
+            block,
+            myself.isThreadSafe
+        ));
+    });
+    /*if (ide) {
+        ide.controlBar.pauseButton.refresh();
+    }*/
+    return procs;
+};
+
+// SF: MOD: add "when run another script" block to Control category
+StageMorph.prototype.fireOnRunEvent = function () {
+    var procs = [],
+        hats = [],
+        ide = this.parentThatIsA(IDE_Morph),
+        myself = this;
+
+    this.children.concat(this).forEach(function (morph) {
+        if (morph instanceof SpriteMorph || morph instanceof StageMorph) {
+            hats = hats.concat(morph.allHatBlocksFor('__run__when__run__'));
+        }
+    });
+    hats.forEach(function (block) {
+        procs.push(myself.threads.startProcess(
+            block,
+            myself.isThreadSafe
+        ));
+    });
+    /*if (ide) {
+        ide.controlBar.pauseButton.refresh();
+    }*/
+    return procs;
+};
+
 StageMorph.prototype.fireStopAllEvent = function () {
     var ide = this.parentThatIsA(IDE_Morph);
     this.threads.resumeAll(this.stage);
@@ -3878,6 +4055,13 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('reportCallCC'));
         blocks.push('-');
         blocks.push(block('createClone'));
+
+        // SF: MOD: add "when load and never stop" block to Control category
+        blocks.push('-');
+        blocks.push(block('receiveOnLoad'));
+        // SF: MOD: add "when run another script" block to Control category
+        blocks.push(block('receiveOnRun'));
+        blocks.push(block('runOtherScripts'));
 
     } else if (cat === 'sensing') {
 
@@ -4116,6 +4300,10 @@ StageMorph.prototype.userMenu = function () {
         menu.addItem('help', 'nop');
         return menu;
     }
+
+    // SF: MOD: allow to remove sprites from Corral if required by the user
+	if (!ide.isLocked) {
+
     menu.addItem("edit", 'edit');
     menu.addItem("show all", 'showAll');
     menu.addItem(
@@ -4143,6 +4331,10 @@ StageMorph.prototype.userMenu = function () {
             new Color(100, 0, 0)
         );
     }
+
+// SF: MOD: closes check
+}
+
     return menu;
 };
 
@@ -4628,7 +4820,7 @@ Costume.prototype.shrinkWrap = function () {
 };
 
 Costume.prototype.boundingBox = function () {
-    // answer the rectangle surrounding my contents' non-transparent pixels 
+    // answer the rectangle surrounding my contents' non-transparent pixels
     var row,
         col,
         pic = this.contents,
@@ -5119,7 +5311,9 @@ CellMorph.prototype.init = function (contents, color, idx, parentCell) {
     this.contents = (contents === 0 ? 0
             : contents === false ? false
                     : contents || '');
-    this.isEditable = isNil(idx) ? false : true;
+// SF: MOD: makes cellmorphs non editable when GUI is locked
+//    this.isEditable = isNil(idx) ? false : true;
+    this.isEditable = world.children[0].isLocked ? false : (isNil(idx) ? false : true);
     this.idx = idx || null; // for list watchers
     this.parentCell = parentCell || null; // for list circularity detection
     CellMorph.uber.init.call(
@@ -5710,10 +5904,17 @@ WatcherMorph.prototype.mouseClickLeft = function () {
 // WatcherMorph user menu:
 
 WatcherMorph.prototype.userMenu = function () {
+    // SF: MOD: allow to remove sprites from Corral if required by the user
+        var ide = this.parentThatIsA(IDE_Morph);
+
     var myself = this,
         menu = new MenuMorph(this),
         on = '\u25CF',
         off = '\u25CB';
+
+    // SF: MOD: allow to remove sprites from Corral if required by the user
+	if (!ide.isLocked) {
+
     menu.addItem(
         (this.style === 'normal' ? on : off) + ' ' + localize('normal'),
         'styleNormal'
@@ -5803,6 +6004,10 @@ WatcherMorph.prototype.userMenu = function () {
             );
         }
     }
+
+// SF: MOD: closes lock check
+}
+
     return menu;
 };
 

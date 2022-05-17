@@ -896,6 +896,57 @@ ToggleButtonMorph.prototype.show = function () {
     this.changed();
 };
 
+// SF: MOD: rename category
+ToggleButtonMorph.prototype.setCategoryName = function (name) {
+	// do not accept empty or already existing category names
+	if (name.trim() == '' || contains(SpriteMorph.prototype.newcategories, name)) {
+		return;
+	}	
+	
+        var ide = this.parentThatIsA(IDE_Morph);
+        if (ide) {
+	    SpriteMorph.prototype.newcategories[SpriteMorph.prototype.newcategories.indexOf(this.labelString.toLowerCase())] = name;
+
+            this.labelString = name[0].toUpperCase().concat(name.slice(1));
+            this.label.text = this.labelString;
+            this.fixLayout();	
+
+	}
+};
+
+// SF: MOD: remove sprites/Stage from Corral if required by the user
+ToggleButtonMorph.prototype.hideObjectFromCorral = function () {
+    var ide = this.parentThatIsA(IDE_Morph);
+    if (ide) {
+        ide.hideObjectFromCorral(this);
+    }
+};
+
+// SF: MOD: remove category from categories if required by the user
+ToggleButtonMorph.prototype.hideCategory = function () {
+    var ide = this.parentThatIsA(IDE_Morph),
+    category = this.labelString.tolower();
+    
+    if (ide) {
+        ide.hideCategory(this);
+	
+	if (contains(SpriteMorph.prototype.categories, this.labelString.tolower())) {
+	
+		var defs = SpriteMorph.prototype.blocks;
+		Object.keys(defs).forEach(function (sel) {
+			if (defs[sel].category === category) {
+			    StageMorph.prototype.hiddenPrimitives[sel] = true;
+			}
+		});
+		(more[category] || []).forEach(function (sel) {
+			StageMorph.prototype.hiddenPrimitives[sel] = true;
+		});
+		ide.flushBlocksCache(category);
+		ide.refreshPalette();
+	}
+    }
+};
+
 // TabMorph ///////////////////////////////////////////////////////
 
 // TabMorph inherits from ToggleButtonMorph:

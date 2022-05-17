@@ -635,6 +635,9 @@ CustomCommandBlockMorph.prototype.isInUse = function () {
 CustomCommandBlockMorph.prototype.userMenu = function () {
     var menu;
 
+// SF: MOD: do not show all items of user menu for custom (they are all custom!) blocks when ide is locked
+var ide = this.parentThatIsA(IDE_Morph);
+
     if (this.isPrototype) {
         menu = new MenuMorph(this);
         menu.addItem(
@@ -651,11 +654,22 @@ CustomCommandBlockMorph.prototype.userMenu = function () {
         } else {
             menu.addLine();
         }
+
+// SF: MOD: do not show all items of user menu for custom (they are all custom!) blocks when ide is locked
+if( !ide.isLocked) {
         // menu.addItem("export definition...", 'exportBlockDefinition');
         menu.addItem("delete block definition...", 'deleteBlockDefinition');
+}
+
     }
+
+// SF: MOD: do not show all items of user menu for custom (they are all custom!) blocks when ide is locked
+if( !ide.isLocked) {
     menu.addItem("edit...", 'edit'); // works also for prototypes
+}
+
     return menu;
+
 };
 
 CustomCommandBlockMorph.prototype.exportBlockDefinition = function () {
@@ -1125,6 +1139,8 @@ BlockDialogMorph.prototype.createCategoryButtons = function () {
 BlockDialogMorph.prototype.addCategoryButton = function (category) {
     var labelWidth = 75,
         myself = this,
+        categories = SpriteMorph.prototype.categories,
+
         colors = [
             SpriteMorph.prototype.paletteColor,
             SpriteMorph.prototype.paletteColor.darker(50),
@@ -2254,7 +2270,11 @@ InputSlotDialogMorph.prototype.init = function (
     this.slots = new BoxMorph();
     this.slots.color = new Color(55, 55, 55); // same as palette
     this.slots.borderColor = this.slots.color.lighter(50);
-    this.slots.setExtent(new Point((fh + 10) * 24, (fh + 10 * scale) * 10.4));
+
+    // SF: MOD: added 2 text height rows for text menus buttons
+    // this.slots.setExtent(new Point((fh + 10) * 24, (fh + 10 * scale) * 10.4));
+    this.slots.setExtent(new Point((fh + 10) * 24, (fh + 12 * scale) * 10.4));
+
     this.add(this.slots);
     this.createSlotTypeButtons();
     this.fixSlotsLayout();
@@ -2471,6 +2491,8 @@ InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
     this.addSlotTypeButton('Command\n(C-shape)', '%cs');
     this.addSlotTypeButton('Any\n(unevaluated)', '%anyUE');
     this.addSlotTypeButton('Boolean\n(unevaluated)', '%boolUE');
+    this.addSlotTypeButton('Text Menu\n(fix)', '%menuFix');
+    this.addSlotTypeButton('Text Menu\n(variable)', '%menuVar');
 
     // arity and upvars
     this.slots.radioButtonSingle = this.addSlotArityButton(
@@ -2478,7 +2500,11 @@ InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
         "Single input.",
         function () {return myself.fragment.isSingleInput(); }
     );
-    this.addSlotArityButton(
+
+    // SF: MOD: remember multiple arity button
+    // this.addSlotArityButton(
+    this.slots.radioButtonMultiple = this.addSlotArityButton(
+
         function () {myself.setSlotArity('multiple'); },
         "Multiple inputs (value is list of inputs)",
         function () {return myself.fragment.isMultipleInput(); }
@@ -2495,9 +2521,22 @@ InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
     defLabel.setColor(new Color(255, 255, 255));
     defLabel.refresh = function () {
         if (myself.isExpanded && contains(
-                ['%s', '%n', '%txt', '%anyUE'],
+
+        	// SF: MOD: show default value (list or items) also for %menuFix and %menuVar
+                // ['%s', '%n', '%txt', '%anyUE'],
+                ['%s', '%n', '%txt', '%anyUE', '%menuFix', '%menuVar'],
+
                 myself.fragment.type
-            )) {
+        )) {
+            // SF: MOD: show default value (list or items) also for %menuFix and %menuVar
+	    if (myself.fragment.type == '%menuFix' || myself.fragment.type == '%menuVar') {
+		defLabel.text = 'List Variable:  ';
+	    } else {
+		defLabel.text = 'Default Value:';
+	    }
+            //defLabel.changed();
+            defLabel.drawNew();
+            //defLabel.parent.drawNew();
             defLabel.show();
         } else {
             defLabel.hide();
@@ -2512,20 +2551,92 @@ InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
     defInput.contents().drawNew();
     defInput.setWidth(50);
     defInput.refresh = function () {
-        if (defLabel.isVisible) {
+
+    	// SF: MOD: don't show defInput for menuVar inputs
+        // if (defLabel.isVisible) {
+        if (defLabel.isVisible && myself.fragment.type != '%menuFix' && myself.fragment.type != '%menuVar') {
+
             defInput.show();
             if (myself.fragment.type === '%n') {
                 defInput.setIsNumeric(true);
             } else {
                 defInput.setIsNumeric(false);
             }
+
+	    // SF: MOD: define default input field from which to get the desired value
+            defInput.parentThatIsA(InputSlotDialogMorph).slots.defaultInputField = defInput;
+
         } else {
             defInput.hide();
         }
     };
-    this.slots.defaultInputField = defInput;
+
+    // SF: MOD: default input field is now defined inside "refresh" function
+    // this.slots.defaultInputField = defInput;
+    this.slots.defaultInputMorph1 = defInput;
+
     this.slots.add(defInput);
     defInput.drawNew();
+
+    // SF: MOD: selector of list names
+    defList = new InputSlotMorph(
+                this.fragment.defaultValue,
+                false,
+                'getVarNamesDictFromEnv',
+                true
+            );
+    defList.refresh = function () {
+        if (defLabel.isVisible && (myself.fragment.type == '%menuFix' || myself.fragment.type == '%menuVar')) {
+            defList.show();
+            defList.parentThatIsA(InputSlotDialogMorph).slots.defaultInputField = defList;
+        } else {
+            defList.hide();
+        }
+    };
+    this.slots.defaultInputMorph2 = defList;
+    this.slots.add(defList);
+    defList.drawNew();
+
+    // SF: MOD: separator input field
+    // separator values
+    sepLabel = new StringMorph(localize('Optional Separator:'));
+    sepLabel.fontSize = this.slots.radioButtonSingle.fontSize;
+    sepLabel.setColor(new Color(255, 255, 255));
+    sepLabel.refresh = function () {
+        if (myself.isExpanded) {
+            // SF: MOD: show separator value
+            //sepLabel.drawNew();
+            //sepLabel.parent.drawNew();
+            sepLabel.show();
+        } else {
+            sepLabel.hide();
+        }
+    };
+    this.slots.separatorInputLabel = sepLabel;
+    this.slots.add(sepLabel);
+
+    sepInput = new InputFieldMorph(this.fragment.separatorValue);
+    sepInput.contents().fontSize = sepLabel.fontSize;
+    sepInput.contrast = 90;
+    sepInput.contents().drawNew();
+    sepInput.setWidth(50);
+    sepInput.refresh = function () {
+
+    	// show sepInput
+        if (sepLabel.isVisible) {
+
+            sepInput.show();
+
+	    // SF: MOD: define separator input field from which to get the desired value
+            sepInput.parentThatIsA(InputSlotDialogMorph).slots.separatorInputField = sepInput;
+
+        } else {
+            sepInput.hide();
+        }
+    };
+    this.slots.separatorInputField = sepInput;
+    this.slots.add(sepInput);
+    sepInput.show();
 
     Morph.prototype.trackChanges = oldFlag;
 };
@@ -2575,10 +2686,15 @@ InputSlotDialogMorph.prototype.addSlotTypeButton = function (
     and show. But in the future computers and browsers may be
     faster.
 */
+
     var myself = this,
         action = function () {myself.setSlotType(spec); },
         query,
-        element = new JaggedBlockMorph(spec),
+
+	// element = new JaggedBlockMorph(spec),
+	// #### SF: MOD: uses dummy images (for now...) for "%menuFix" and "%menuVar"
+	element = (spec == "%menuFix" || spec == "%menuVar") ? new JaggedBlockMorph("%cmdRing") : new JaggedBlockMorph(spec),
+
         button;
 
     query = function () {
@@ -2651,7 +2767,9 @@ InputSlotDialogMorph.prototype.fixSlotsLayout = function () {
         ypadding = 14 * scale,
         bh = (fontHeight(10) / 1.2 + 15) * scale, // slot type button height
         ah = (fontHeight(10) / 1.2 + 10) * scale, // arity button height
-        size = 12, // number slot type radio buttons
+        // SF: MOD: added 2 elements for text (fix or variable) menus
+        // size = 12, // number slot type radio buttons
+        size = 14, // number slot type radio buttons
         cols = [
             slots.left() + xPadding,
             slots.left() + slots.width() / 3,
@@ -2665,8 +2783,14 @@ InputSlotDialogMorph.prototype.fixSlotsLayout = function () {
             slots.top() + ypadding + bh * 4,
             slots.top() + ypadding + bh * 5,
 
-            slots.top() + ypadding + bh * 5 + ah,
-            slots.top() + ypadding + bh * 5 + ah * 2
+            // SF: MOD: added row for text (fix or variable) menus
+            slots.top() + ypadding + bh * 6,
+
+            // SF: MOD: moved row down for arity and upvar buttons
+            // slots.top() + ypadding + bh * 5 + ah,
+            // slots.top() + ypadding + bh * 5 + ah * 2
+            slots.top() + ypadding + bh * 6 + ah,
+            slots.top() + ypadding + bh * 6 + ah * 2
         ],
         idx,
         row = -1,
@@ -2689,7 +2813,9 @@ InputSlotDialogMorph.prototype.fixSlotsLayout = function () {
     // arity:
 
     col = 0;
-    row = 5;
+    // SF: MOD: added row for text (fix or variable) menus
+    // row = 5;
+    row = 6;
     for (idx = size; idx < size + 3; idx += 1) {
         slots.children[idx].setPosition(new Point(
             cols[col],
@@ -2702,13 +2828,35 @@ InputSlotDialogMorph.prototype.fixSlotsLayout = function () {
     this.slots.defaultInputLabel.setPosition(
         this.slots.radioButtonSingle.label.topRight().add(new Point(5, 0))
     );
-    this.slots.defaultInputField.setCenter(
+    this.slots.defaultInputMorph1.setCenter(
         this.slots.defaultInputLabel.center().add(new Point(
-            this.slots.defaultInputField.width() / 2
+            this.slots.defaultInputMorph1.width() / 2
                 + this.slots.defaultInputLabel.width() / 2 + 5,
             0
         ))
     );
+
+    // SF: MOD: place default input field for variable list name at the same position
+    this.slots.defaultInputMorph2.setCenter(
+        this.slots.defaultInputLabel.center().add(new Point(
+            this.slots.defaultInputMorph2.width() / 2
+                + this.slots.defaultInputLabel.width() / 2 + 5,
+            0
+        ))
+    );
+
+    // SF: MOD: place separator input field for variable list name at the same position
+    this.slots.separatorInputLabel.setPosition(
+        this.slots.radioButtonMultiple.label.topRight().add(new Point(5, 0))
+    );
+    this.slots.separatorInputField.setCenter(
+        this.slots.separatorInputLabel.center().add(new Point(
+            this.slots.separatorInputField.width() / 2
+                + this.slots.separatorInputLabel.width() / 2 + 5,
+            0
+        ))
+    );
+
     Morph.prototype.trackChanges = oldFlag;
     this.slots.changed();
 };
@@ -2912,7 +3060,8 @@ BlockExportDialogMorph.prototype.buildContents = function () {
     // populate palette
     x = palette.left() + padding;
     y = palette.top() + padding;
-    SpriteMorph.prototype.categories.forEach(function (category) {
+    // SF: MOD: takes into account original category names
+    SpriteMorph.prototype.originalcategories.forEach(function (category) {
         myself.blocks.forEach(function (definition) {
             if (definition.category === category) {
                 if (lastCat && (category !== lastCat)) {

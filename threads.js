@@ -196,7 +196,7 @@ ThreadManager.prototype.step = function () {
     processes that have been terminated
 */
     this.processes.forEach(function (proc) {
-        if (!proc.homeContext.receiver.isPickedUp() && !proc.isDead) {
+        if (proc.homeContext && !proc.homeContext.receiver.isPickedUp() && !proc.isDead) {
             proc.runStep();
         }
     });
@@ -348,6 +348,10 @@ Process.prototype.runStep = function () {
             && (this.isAtomic ?
                     (Date.now() - this.lastYield < this.timeout) : true)
                 ) {
+        //SF: also allow pausing inside atomic steps - for PAUSE block primitive:
+        if (this.isPaused) {
+            return this.pauseStep();
+        }
         this.evaluateContext();
     }
     this.lastYield = Date.now();
@@ -1313,8 +1317,10 @@ Process.prototype.doIfElse = function () {
     } else {
         if (args[2]) {
             this.pushContext(args[2].blockSequence(), outer);
+        } else {
+            this.pushContext('doYield');
         }
-    }
+	}
     if (this.context) {
         this.context.isLambda = isLambda;
         this.context.isImplicitLambda = isImplicitLambda;
@@ -1351,6 +1357,22 @@ Process.prototype.doStopAll = function () {
         if (ide) {ide.controlBar.pauseButton.refresh(); }
     }
 };
+
+// SF: MOD: keep running suspended scripts
+Process.prototype.runOtherScripts = function () {
+    var stage, ide;
+    if (this.homeContext.receiver) {
+        stage = this.homeContext.receiver.parentThatIsA(StageMorph);
+        if (stage) {
+			suspendedScript = stage.threads.suspendedScript;
+			if (suspendedScript) {
+				stage.threads.suspendedScript = null;
+				stage.threads.toggleProcess(suspendedScript);
+			}
+        }
+    }
+};
+
 
 Process.prototype.doWarp = function (body) {
     // execute my contents block atomically (more or less)
@@ -1515,15 +1537,15 @@ Process.prototype.doGlide = function (secs, endX, endY) {
     if (!this.context.startTime) {
         this.context.startTime = Date.now();
         this.context.startValue = new Point(
-            this.homeContext.receiver.xPosition(),
-            this.homeContext.receiver.yPosition()
+            this.blockReceiver().xPosition(),
+            this.blockReceiver().yPosition()
         );
     }
     if ((Date.now() - this.context.startTime) >= (secs * 1000)) {
-        this.homeContext.receiver.gotoXY(endX, endY);
+        this.blockReceiver().gotoXY(endX, endY);
         return null;
     }
-    this.homeContext.receiver.glide(
+    this.blockReceiver().glide(
         secs * 1000,
         endX,
         endY,
@@ -1538,10 +1560,10 @@ Process.prototype.doGlide = function (secs, endX, endY) {
 Process.prototype.doSayFor = function (data, secs) {
     if (!this.context.startTime) {
         this.context.startTime = Date.now();
-        this.homeContext.receiver.bubble(data);
+        this.blockReceiver().bubble(data);
     }
     if ((Date.now() - this.context.startTime) >= (secs * 1000)) {
-        this.homeContext.receiver.stopTalking();
+        this.blockReceiver().stopTalking();
         return null;
     }
     this.pushContext('doYield');
@@ -1551,14 +1573,19 @@ Process.prototype.doSayFor = function (data, secs) {
 Process.prototype.doThinkFor = function (data, secs) {
     if (!this.context.startTime) {
         this.context.startTime = Date.now();
-        this.homeContext.receiver.doThink(data);
+        this.blockReceiver().doThink(data);
     }
     if ((Date.now() - this.context.startTime) >= (secs * 1000)) {
-        this.homeContext.receiver.stopTalking();
+        this.blockReceiver().stopTalking();
         return null;
     }
     this.pushContext('doYield');
     this.pushContext();
+};
+
+Process.prototype.blockReceiver = function () {
+    return this.context ? this.context.receiver || this.homeContext.receiver
+            : this.homeContext.receiver;
 };
 
 // Process sound primitives (interpolated)
@@ -1595,7 +1622,7 @@ Process.prototype.doStopAllSounds = function () {
 
 Process.prototype.doAsk = function (data) {
     var stage = this.homeContext.receiver.parentThatIsA(StageMorph),
-        isStage = this.homeContext.receiver instanceof StageMorph,
+        isStage = this.blockReceiver() instanceof StageMorph,
         activePrompter;
 
     if (!this.prompter) {
@@ -1605,7 +1632,7 @@ Process.prototype.doAsk = function (data) {
         );
         if (!activePrompter) {
             if (!isStage) {
-                this.homeContext.receiver.bubble(data, false, true);
+                this.blockReceiver().bubble(data, false, true);
             }
             this.prompter = new StagePrompterMorph(isStage ? data : null);
             if (stage.scale < 1) {
@@ -1625,7 +1652,7 @@ Process.prototype.doAsk = function (data) {
             stage.lastAnswer = this.prompter.inputField.getValue();
             this.prompter.destroy();
             this.prompter = null;
-            if (!isStage) {this.homeContext.receiver.stopTalking(); }
+            if (!isStage) {this.blockReceiver().stopTalking(); }
             return null;
         }
     }
@@ -2186,7 +2213,7 @@ Process.prototype.reportColorIsTouchingColor = function (color1, color2) {
 };
 
 Process.prototype.reportDistanceTo = function (name) {
-    var thisObj = this.homeContext.receiver,
+    var thisObj = this.blockReceiver(),
         thatObj,
         stage,
         rc,
@@ -2209,7 +2236,7 @@ Process.prototype.reportDistanceTo = function (name) {
 };
 
 Process.prototype.reportAttributeOf = function (attribute, name) {
-    var thisObj = this.homeContext.receiver,
+    var thisObj = this.blockReceiver(),
         thatObj,
         stage;
 
@@ -2221,6 +2248,9 @@ Process.prototype.reportAttributeOf = function (attribute, name) {
             thatObj = this.getOtherObject(name, thisObj, stage);
         }
         if (thatObj) {
+            if (attribute instanceof Context) {
+                return this.reportContextFor(attribute, thatObj);
+            }
             if (isString(attribute)) {
                 return thatObj.variables.getVar(attribute);
             }
@@ -2243,6 +2273,18 @@ Process.prototype.reportAttributeOf = function (attribute, name) {
         }
     }
     return '';
+};
+
+Process.prototype.reportContextFor = function (context, otherObj) {
+    // Private - return a copy of the context
+    // and bind it to another receiver
+    var result = copy(context);
+    result.receiver = otherObj;
+    if (result.outerContext) {
+        result.outerContext = copy(result.outerContext);
+        result.outerContext.receiver = otherObj;
+    }
+    return result;
 };
 
 Process.prototype.reportMouseX = function () {

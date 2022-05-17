@@ -10269,9 +10269,26 @@ WorldMorph.prototype.initEventListeners = function () {
     document.body.addEventListener(
         "paste",
         function (event) {
-            var txt = event.clipboardData.getData("Text");
+//            var txt = myself.clipboardData.getData("Text");
+            var txt = myself.clipboardData;
+            if (!txt) {
+            	txt = myself.clipboardData.getData("Text");
+            }
             if (txt && myself.cursor) {
                 myself.cursor.insert(txt);
+            }
+        }, 
+        false
+    );
+
+// SF: MOD: add management of COPY event
+    document.body.addEventListener(
+        "copy",
+        function (event) {
+            if (myself.cursor) {
+                var txt = myself.cursor.target.selection();
+//	        myself.clipboardData.setData("Text", txt);
+	        myself.clipboardData = txt;
             }
         },
         false

@@ -1,0 +1,23 @@
+$('#editor').bind('paste', function(){ // catch the paste-event in the DIV
+    // get content before paste
+    var before = document.getElementById('editor').innerHTML;
+    setTimeout(function(){
+        // get content after paste by a 100ms delay
+        var after = document.getElementById('editor').innerHTML;
+        // find the start and end position where the two differ
+        var pos1 = -1;
+        var pos2 = -1;
+        for (var i=0; i<after.length; i++) {
+            if (pos1 == -1 && before.substr(i, 1) != after.substr(i, 1)) pos1 = i;
+            if (pos2 == -1 && before.substr(before.length-i-1, 1) != after.substr(after.length-i-1, 1)) pos2 = i;
+        }
+        // the difference = pasted string with HTML:
+        var pasted = after.substr(pos1, after.length-pos2-pos1);
+        // strip the tags:
+        var replace = pasted.replace(/<[^>]+>/g, '');
+        // build clean content:
+        var replaced = after.substr(0, pos1)+replace+after.substr(pos1+pasted.length);
+        // replace the HTML mess with the plain content
+        document.getElementById('editor').innerHTML = replaced;
+    }, 100);
+});
